@@ -26,7 +26,7 @@ localNow = datetime.datetime.now(localTz)
 measureStart = localNow.replace(hour=int(localNow.hour/12)*12, minute=0, second=0, microsecond=0)
 weather_cachefile = localNow.strftime('%Y-%m-%d_weather_cache.json')
 # Add some extra time to the forecast so we can have a nice end to the graph
-oneDayHence = measureStart + datetime.timedelta(days=1, hours=2)
+oneDayHence = measureStart + datetime.timedelta(days=1, hours=1)
 isoPat = re.compile(r'(?P<timestamp>[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})(?P<timezone>[\+-][0-9]{2}:[0-9]{2})(/P.+)?')
 
 white = (255,255,255)
@@ -36,21 +36,20 @@ green = (0,255,0)
 blue = (0,0,255)
 yellow = (255,255,0)
 
-def getLinePoints(values, timeToXFunc=None, xScaleFactor=None, yScaleFactor=None, minValue=None, xAdd=None, yAdd=None):
-    if xScaleFactor is None:
-        xScaleFactor = 1
+def getLinePoints(values, timeToXFunc, yScaleFactor=None, minValue=None, yAdd=None):
     if yScaleFactor is None:
         yScaleFactor = 1
-    if xAdd is None:
-        xAdd = 0
     if yAdd is None:
         yAdd = 0
     if minValue is None:
         minValue = 0
-    xFunc = lambda idx, value: xAdd+idx*xScaleFactor
     points = []
-    for idx, value in enumerate(values):
-        points.append( (xFunc(idx, value), yAdd+(value-minValue)*yScaleFactor, value) )
+    for value in values:
+        points.append(
+                (timeToXFunc(value['time']),
+                yAdd+(value['value']-minValue)*yScaleFactor,
+                value['value'])
+            )
     return points
 
 def extractValues(timeAndValueDict):
@@ -93,7 +92,7 @@ def drawGraph(date, curTime, whenRetrieved, location, graphData):
     beginTime = graphData[0]['time']
     endTime = graphData[-1]['time']
     roundBegin = beginTime.replace(minute=0 if beginTime.minute < 30 else 30, second=0, microsecond=0)
-    roundEnd = endTime.replace(hour=endTime.hour+1 if endTime.minute>30 else endTime.hour, minute=30 if endTime.minute < 30 else 0, second=0, microsecond=0)
+    roundEnd = endTime.replace(hour=endTime.hour+1 if endTime.minute>=30 else endTime.hour, minute=30 if endTime.minute < 30 else 0, second=0, microsecond=0)
     timeRange = roundEnd - roundBegin
     hoursDisplayed = int(timeRange / datetime.timedelta(hours=1))
     baseDate = date.replace(hour=int(roundBegin.hour/3)*3, minute=0, second=0, microsecond=0)
@@ -101,14 +100,14 @@ def drawGraph(date, curTime, whenRetrieved, location, graphData):
     if args.current_time is not None:
         curTime = beginTime.replace(hour=beginTime.hour+args.current_time)
     
-    temperatures = [val['temperature'] for val in graphData]
-    chancePrecips = [val['probabilityOfPrecipitation'] for val in graphData]
-    humidities = [val['relativeHumidity'] for val in graphData]
+    temperatures = [{'time':val['time'], 'value':val['temperature']} for val in graphData]
+    chancePrecips = [{'time':val['time'], 'value':val['probabilityOfPrecipitation']} for val in graphData]
+    humidities = [{'time':val['time'], 'value':val['relativeHumidity']} for val in graphData]
 
     def timeToGraphX(inTime):
         return graphArea[0][0]+graphPadding[0]+((inTime - roundBegin)/timeRange)*graphSize[0]
     
-    tempExtents = (min(50, min(temperatures)-10), max(60, max(temperatures)+10))
+    tempExtents = (min(50, min([val['value'] for val in temperatures])-10), max(60, max([val['value'] for val in temperatures])+10))
 
     measurePoints = max(len(chancePrecips), len(temperatures), len(humidities))
     pointIncrease = graphSize[0] / float(measurePoints)
@@ -206,29 +205,29 @@ def drawGraph(date, curTime, whenRetrieved, location, graphData):
     draw.text( (graphArea[0][1]+3, graphArea[1][0]), highLabel, fill=black, font=font_labels)
 
     # draw precipitation line
-    precipPoints = getLinePoints(chancePrecips, xScaleFactor=pointIncrease, yScaleFactor=percentScale, xAdd=graphArea[0][0]+graphPadding[0], yAdd=graphArea[1][1]-graphPadding[1])
+    precipPoints = getLinePoints(chancePrecips, timeToGraphX, yScaleFactor=percentScale, yAdd=graphArea[1][1]-graphPadding[1])
     draw.line( [(v[0], v[1]) for v in precipPoints], fill=blue, width=10, joint='curve')
     # draw temp line
-    tempPoints = getLinePoints(temperatures, xScaleFactor=pointIncrease, yScaleFactor=degreeScale, minValue=tempExtents[0], xAdd=graphArea[0][0]+graphPadding[0], yAdd=graphArea[1][1]-graphPadding[1])
+    tempPoints = getLinePoints(temperatures, timeToGraphX, yScaleFactor=degreeScale, minValue=tempExtents[0], yAdd=graphArea[1][1]-graphPadding[1])
     draw.line( [(v[0], v[1]) for v in tempPoints], fill=red, width=10, joint='curve')
     # draw humidity line
-    humidPoints = getLinePoints(humidities, xScaleFactor=pointIncrease, yScaleFactor=percentScale, xAdd=graphArea[0][0]+graphPadding[0], yAdd=graphArea[1][1]-graphPadding[1])
+    humidPoints = getLinePoints(humidities, timeToGraphX, yScaleFactor=percentScale, yAdd=graphArea[1][1]-graphPadding[1])
     draw.line( [(v[0], v[1]) for v in humidPoints], fill=green, width=10, joint='curve')
 
     # draw precipitation checkpoints
-    precipCheckpoints = precipPoints[0::5]
+    precipCheckpoints = precipPoints[0::7]
     for checkpoint in precipCheckpoints:
         chkLabel = pctLabel.format(checkpoint[2])
         chkSize = font_labels.getsize(chkLabel)
         draw.text( (checkpoint[0], checkpoint[1]-chkSize[1]-3), chkLabel, fill=black, font=font_labels)
     # draw temp checkpoints
-    tempCheckpoints = tempPoints[1::5]
+    tempCheckpoints = tempPoints[2::7]
     for checkpoint in tempCheckpoints:
         chkLabel = tempFmtLabel.format(checkpoint[2])
         chkSize = font_labels.getsize(chkLabel)
         draw.text( (checkpoint[0], checkpoint[1]-chkSize[1]-3), chkLabel, fill=black, font=font_labels)
     # draw humidity checkpoints
-    humidCheckpoints = humidPoints[2::5]
+    humidCheckpoints = humidPoints[4::7]
     for checkpoint in humidCheckpoints:
         chkLabel = pctLabel.format(checkpoint[2])
         chkSize = font_labels.getsize(chkLabel)
