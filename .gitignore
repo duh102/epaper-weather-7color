@@ -1,0 +1,4 @@
+*_cache.json
+*.png
+/__pycache__
+*.swp
