@@ -14,7 +14,12 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--test', action='store_true', help='Output test image (to test.png)')
 parser.add_argument('--no-epaper', action='store_true', help='Do *not* output to the e-paper display')
 parser.add_argument('--current-time', type=type_hours, default=None, help='Set the current time to be a spoofed value at (begin) + this many hours')
+parser.add_argument('--debug-output', action='store_true', help='Output debug messages')
 args = parser.parse_args()
+
+def printd(*pargs, **kwargs):
+    if args.debug_output:
+        print(*pargs, **kwargs)
 
 font_title = ImageFont.truetype('Inconsolata.otf', 24)
 font_labels = ImageFont.truetype('RictyDiminished-Bold.ttf', 14)
@@ -24,7 +29,7 @@ weather_country = 'US'
 localTz = tzlocal.get_localzone()
 localNow = datetime.datetime.now(localTz)
 measureStart = localNow.replace(hour=int(localNow.hour/12)*12, minute=0, second=0, microsecond=0)
-weather_cachefile = localNow.strftime('%Y-%m-%d_weather_cache.json')
+weather_cachefile = localNow.strftime('weather_cache.json')
 # Add some extra time to the forecast so we can have a nice end to the graph
 oneDayHence = measureStart + datetime.timedelta(days=1, hours=1)
 isoPat = re.compile(r'(?P<timestamp>[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})(?P<timezone>[\+-][0-9]{2}:[0-9]{2})(/P.+)?')
@@ -55,7 +60,7 @@ def getLinePoints(values, timeToXFunc, yScaleFactor=None, minValue=None, yAdd=No
 def extractValues(timeAndValueDict):
     return [val['value'] for val in timeAndValueDict]
 
-def drawGraph(date, curTime, whenRetrieved, location, graphData):
+def drawGraph(date, curTime, whenUpdated, location, graphData):
     imageArea = (640,400)
     img = Image.new('RGB', imageArea, (255,255,255))
     draw = ImageDraw.Draw(img)
@@ -125,9 +130,9 @@ def drawGraph(date, curTime, whenRetrieved, location, graphData):
     dateLabel = date.strftime('%A %b %d %Y')
     dateLabelSize = font_title.getsize(dateLabel)
     draw.text( (titleArea[0][0], titleArea[1][0]+titleLabelSize[1]+bumpOffset), dateLabel, font=font_title, fill=black)
-    # Retrieved/Updated
-    retrLabel = 'Retrieved {}'.format(whenRetrieved.strftime('%Y-%m-%d %H:%M:%S'))
-    nowLabel = 'Updated {}'.format(curTime.strftime('%H:%M:%S'))
+    # Updated/Updated
+    retrLabel = 'Data Updated {}'.format(whenUpdated.strftime('%Y-%m-%d %H:%M:%S'))
+    nowLabel = 'Graph Updated {}'.format(curTime.strftime('%H:%M:%S'))
     retrLabelSize = font_labels.getsize(retrLabel)
     nowLabelSize = font_labels.getsize(nowLabel)
     # Legend
@@ -247,7 +252,7 @@ def extractTimeFromDuration(inStr):
         return None
     timeStr = mat.group('timestamp')
     timeZone = mat.group('timezone').replace(':', '')
-    return datetime.datetime.strptime('{}{}'.format(timeStr, timeZone), '%Y-%m-%dT%X%z')
+    return datetime.datetime.strptime('{}{}'.format(timeStr, timeZone), '%Y-%m-%dT%X%z').astimezone(localTz)
 
 within24Hours = lambda time: oneDayHence >= time
 
@@ -265,16 +270,25 @@ def coerceDatetimesToStrings(alist):
             for value in alist]
 
 result = None
-if not os.path.isfile(weather_cachefile):
-    print('Retreiving weather and caching in {}'.format(weather_cachefile))
+tooOld = False
+def retrieve_weather():
     noaa = NOAA()
-    result = noaa.get_forecasts(weather_zip, weather_country, type='forecastGridData')
-    with open(weather_cachefile, 'w') as outfil:
-        json.dump(result, outfil)
-else:
-    print('Loading cached weather from {}'.format(weather_cachefile))
+    return noaa.get_forecasts(weather_zip, weather_country, type='forecastGridData')
+
+if os.path.isfile(weather_cachefile):
+    printd('Loading cached weather from {}'.format(weather_cachefile))
     with open(weather_cachefile, 'r') as infil:
         result = json.load(infil)
+    updateTime = extractTimeFromDuration(result['updateTime'])
+    # if the data is over 24 hours old, repull it
+    if updateTime+datetime.timedelta(hours=24) < datetime.datetime.now(localTz):
+        printd('Cache too old (updated {}), reloading'.format(updateTime.strftime('%Y-%m-%d %H:%M:%S')))
+        tooOld = True
+if tooOld or result is None:
+    printd('Retreiving weather and caching in {}'.format(weather_cachefile))
+    result = retrieve_weather()
+    with open(weather_cachefile, 'w') as outfil:
+        json.dump(result, outfil)
 
 updateTime = extractTimeFromDuration(result['updateTime'])
 
@@ -300,7 +314,7 @@ while curTime < oneDayHence:
         if idx < len(humid) and (curHumid is None or curTime >= humid[idx]['validTime']):
             curHumid = humid[idx]['value']
     if curPrecip is None or curTemp is None or curHumid is None:
-        print('Crap, we weren\'t able to find any data for one of these values:\nprecipitation: {}, temperature: {}, humidity: {}'.format(curPrecip, curTemp, curHumid))
+        printd('Crap, we weren\'t able to find any data for one of these values:\nprecipitation: {}, temperature: {}, humidity: {}'.format(curPrecip, curTemp, curHumid))
     halfHourValues.append({'time':curTime, 'probabilityOfPrecipitation':curPrecip, 'temperature':convertCToF(curTemp), 'relativeHumidity':curHumid})
     curTime += datetime.timedelta(minutes=30)
 
@@ -308,7 +322,7 @@ img = drawGraph(measureStart, localNow, updateTime, '{}, {}'.format(weather_zip,
 if args.test:
     img.save('test.png', 'PNG')
 if not args.no_epaper:
-    print('Drawing to e-paper...')
+    printd('Drawing to e-paper...')
     try:
         epd = epd4in01f.EPD()
         epd.init()
@@ -317,3 +331,4 @@ if not args.no_epaper:
         epd.sleep()
     except:
         epd4in01f.epdconfig.module_exit()
+    printd('Drawing complete')
