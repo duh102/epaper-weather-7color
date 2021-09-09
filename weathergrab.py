@@ -2,7 +2,6 @@
 import datetime, re, tzlocal, json, os, PIL, sys, argparse
 from noaa_sdk import NOAA
 from PIL import Image, ImageDraw, ImageFont
-import epd4in01f
 
 def type_hours(string):
     val = int(string)
@@ -112,7 +111,8 @@ def drawGraph(date, curTime, whenUpdated, location, graphData):
     def timeToGraphX(inTime):
         return graphArea[0][0]+graphPadding[0]+((inTime - roundBegin)/timeRange)*graphSize[0]
     
-    tempExtents = (min(50, min([val['value'] for val in temperatures])-10), max(60, max([val['value'] for val in temperatures])+10))
+    tempExtremes = (min([val['value'] for val in temperatures]), max([val['value'] for val in temperatures]))
+    tempExtents = (min(50, tempExtremes[0]-10), max(60, tempExtremes[1]+10))
 
     measurePoints = max(len(chancePrecips), len(temperatures), len(humidities))
     pointIncrease = graphSize[0] / float(measurePoints)
@@ -130,6 +130,10 @@ def drawGraph(date, curTime, whenUpdated, location, graphData):
     dateLabel = date.strftime('%A %b %d %Y')
     dateLabelSize = font_title.getsize(dateLabel)
     draw.text( (titleArea[0][0], titleArea[1][0]+titleLabelSize[1]+bumpOffset), dateLabel, font=font_title, fill=black)
+    # Min/Max temp
+    minMaxTempLabel = 'Low {} High {}'.format(tempFmtLabel.format(tempExtremes[0]), tempFmtLabel.format(tempExtremes[1]))
+    tempLabelSize = font_title.getsize(minMaxTempLabel)
+    draw.text( (titleArea[0][0], titleArea[1][0]+titleLabelSize[1]+dateLabelSize[1]+bumpOffset*2), minMaxTempLabel, font=font_title, fill=black)
     # Updated/Updated
     retrLabel = 'Data Updated {}'.format(whenUpdated.strftime('%Y-%m-%d %H:%M:%S'))
     nowLabel = 'Graph Updated {}'.format(curTime.strftime('%H:%M:%S'))
@@ -322,6 +326,7 @@ img = drawGraph(measureStart, localNow, updateTime, '{}, {}'.format(weather_zip,
 if args.test:
     img.save('test.png', 'PNG')
 if not args.no_epaper:
+    import epd4in01f
     printd('Drawing to e-paper...')
     try:
         epd = epd4in01f.EPD()
