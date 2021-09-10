@@ -20,7 +20,7 @@ def printd(*pargs, **kwargs):
     if args.debug_output:
         print(*pargs, **kwargs)
 
-font_title = ImageFont.truetype('Inconsolata.otf', 24)
+font_title = ImageFont.truetype('RictyDiminished-Bold.ttf', 24)
 font_labels = ImageFont.truetype('RictyDiminished-Bold.ttf', 14)
 
 weather_zip = '27529'
@@ -228,19 +228,19 @@ def drawGraph(date, curTime, whenUpdated, location, graphData):
     for checkpoint in precipCheckpoints:
         chkLabel = pctLabel.format(checkpoint[2])
         chkSize = font_labels.getsize(chkLabel)
-        draw.text( (checkpoint[0], checkpoint[1]-chkSize[1]-3), chkLabel, fill=black, font=font_labels)
+        draw.text( (checkpoint[0], max(checkpoint[1]-chkSize[1]-3, graphArea[1][0])), chkLabel, fill=black, font=font_labels)
     # draw temp checkpoints
     tempCheckpoints = tempPoints[2::7]
     for checkpoint in tempCheckpoints:
         chkLabel = tempFmtLabel.format(checkpoint[2])
         chkSize = font_labels.getsize(chkLabel)
-        draw.text( (checkpoint[0], checkpoint[1]-chkSize[1]-3), chkLabel, fill=black, font=font_labels)
+        draw.text( (checkpoint[0], max(checkpoint[1]-chkSize[1]-3, graphArea[1][0])), chkLabel, fill=black, font=font_labels)
     # draw humidity checkpoints
     humidCheckpoints = humidPoints[4::7]
     for checkpoint in humidCheckpoints:
         chkLabel = pctLabel.format(checkpoint[2])
         chkSize = font_labels.getsize(chkLabel)
-        draw.text( (checkpoint[0], checkpoint[1]-chkSize[1]-3), chkLabel, fill=black, font=font_labels)
+        draw.text( (checkpoint[0], max(checkpoint[1]-chkSize[1]-3, graphArea[1][0])), chkLabel, fill=black, font=font_labels)
     # draw time checkpoints
     for checkpoint in quarterMarks:
         chkLabel = timeLabel(checkpoint[1])
