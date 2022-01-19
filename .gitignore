@@ -3,3 +3,5 @@
 /__pycache__
 *.swp
 nohup.out
+pushover_tokens.json
+notification_cache.json

@@ -9,8 +9,41 @@ def type_hours(string):
         raise Exception('Value must be an integer between 0 and 23')
     return val
 
+def load_pushover_data():
+  credentials_file = 'pushover_tokens.json'
+  creds = {}
+  if os.path.isfile(credentials_file):
+    with open(credentials_file, 'r') as infil:
+      creds = json.load(infil)
+  if 'api' not in creds:
+    creds['api'] = ''
+  if 'user' not in creds:
+    creds['user'] = ''
+  with open(credentials_file, 'w') as outfil:
+    json.dump(creds, outfil, indent=2)
+  return creds
+
+dtFormat = '%Y-%m-%d %H:%M:%S %z'
+dFormat = '%Y-%m-%d'
+def should_notify(time):
+  notification_cachefile = 'notification_cache.json'
+  notification_time = time.replace(hour=8, minute=0, second=0)
+  last_notification = None
+  if os.path.isfile(notification_cachefile):
+    with open(notification_cachefile, 'r') as infil:
+      last_notification = json.load(infil).get('last', None)
+  if last_notification is not None:
+    last_notification = datetime.strptime(last_notification, dtFormat)
+  if time > notification_time and last_notification is None or notification_time > last_notification:
+    return true
+  return false
+
+def mark_notified(time):
+  with open(notification_cachefile, 'w') as outfil:
+    json.write({'last':time.strftime(dtFormat)}, outfil)
+
 parser = argparse.ArgumentParser()
-parser.add_argument('--test', action='store_true', help='Output test image (to test.png)')
+parser.add_argument('--test', action='store_true', help='Enable test mode; always sends notification to pushover')
 parser.add_argument('--no-epaper', action='store_true', help='Do *not* output to the e-paper display')
 parser.add_argument('--current-time', type=type_hours, default=None, help='Set the current time to be a spoofed value at (begin) + this many hours')
 parser.add_argument('--debug-output', action='store_true', help='Output debug messages')
@@ -28,7 +61,7 @@ weather_country = 'US'
 localTz = tzlocal.get_localzone()
 localNow = datetime.datetime.now(localTz)
 measureStart = localNow.replace(hour=int(localNow.hour/12)*12, minute=0, second=0, microsecond=0)
-weather_cachefile = localNow.strftime('weather_cache.json')
+weather_cachefile = 'weather_cache.json'
 # Add some extra time to the forecast so we can have a nice end to the graph
 oneDayHence = measureStart + datetime.timedelta(days=1, hours=1)
 isoPat = re.compile(r'(?P<timestamp>[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})(?P<timezone>[\+-][0-9]{2}:[0-9]{2})(/P.+)?')
@@ -323,8 +356,22 @@ while curTime < oneDayHence:
     curTime += datetime.timedelta(minutes=30)
 
 img = drawGraph(measureStart, localNow, updateTime, '{}, {}'.format(weather_zip, weather_country), halfHourValues)
-if args.test:
-    img.save('test.png', 'PNG')
+img.save('weather.png', 'PNG')
+if args.test or should_notify(localNow):
+  try:
+    from pushover import Client
+    api_keys = load_pushover_data()
+    api = api_keys.get('api')
+    user = api_keys.get('user')
+    if api is not None and user is not None and len(api) > 0 and len(user) > 0:
+      client = Client(user, api_token=api)
+      with open('weather.png', 'rb') as imgfile:
+        client.send_message('Weather update for today', title='Weather ' + localNow.strftime(dFormat), attachment=imgfile)
+
+      if not args.test:
+       mark_notified(localNow)
+  except ImportError:
+    pass
 if not args.no_epaper:
     import epd4in01f
     printd('Drawing to e-paper...')
